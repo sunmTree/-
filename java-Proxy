@@ -1,0 +1,80 @@
+文章：公共技术点之 Java 动态代理
+
+动态代理中的一些概念名词：
+委托类     代理类     静态代理     动态代理     Proxy   InvocationHandler
+
+因为这篇文章是记录自己在阅读“公共技术点之 Java 动态代理”时遇到的问题并记录如何通过阅读源码和查阅资料解决这些问题的文章，所以一些原文章中用到的代码等文字不再粘贴。
+
+疑惑：
+1、Java 提供了动态代理的实现方式，可以在运行时刻动态生成代理类。这种代理方式的一大好处是可以方便对代理类的函数做统一或特殊处理，如记录所有函数执行时间、所有函数执行前添加验证判断、对某个特殊函数进行特    
+     殊操作，而不用像静态代理方式那样需要修改每个函数。
+
+2、文章中说实现动态代理时需要实现InvocationHandler接口，它是负责连接委托类和代理类必须实现的接口，还有一个Proxy
+     为什么，它做了什么
+
+3、动态代理要求委托类必须实现某个接口
+
+
+
+解答：
+代理：不能直接访问A，而通过访问B达到访问A的目的方式称之为代理。
+动态代理：程序运行之前不存在代理类，而是运行时动态生成代理的方式为动态代理。
+
+对问题1的回答：
+一开始出现问题一是因为作者直接把动态代理的好处给说了出来，在不明白动态代理怎么实现的情况下，就出现了问题一，现在把自己的理解说一下。
+作者再讲解静态代理的时候，我们看到，ClassB只是实现了ClassA中的两个方法所以代理类可以代理委托类中所有的方法，也可以只代理委托类中的一部分代码，即“功能代理”，和现实生活中的代理很像呀：)。这是静态代理和动态代理都有的特点，在动态代理中还有一个特性叫“功能增强”，就是可以在调用委托类的方法时，动态的增加一些我们想实现的委托类不存在的代码。比如说原文章中的统计方法执行的时间的那个例子，如果是静态代理实现的话，就需要在ClassB中的每个方法中加上统计时间的代码。
+
+public class OperateImpl implements Operate{
+
+     @Override
+     public void operateMethod1() {
+            long start = System.currentTimeMillis();
+            System.out.println("Invoke operateMethod1");
+            sleep(100);
+            System.out.println("operateMethod1 cost time is: "+(System.currentTimeMillis() - start));
+     }
+     ...
+}
+而在动态代理中却可以很简单的实现，因为动态代理有一个功能增强的特性。原文中有提到每一次代理对象运行它自己的方法都是通过调用InvocationHandler里面invoke()方法实现的，为什么invoke能实现，因为在invoke里面我们调用了代理类中相应的方法。所以如果我们在invoke调用代理类方法之前做一些处理，比如说统计下方法执行的时间，那么就不用在代理类OperateImpl里面修改代码了。
+
+@Override
+public Object invoke(Object proxy, Method method, Object[] args)
+  throws Throwable {
+  long start = System.currentTimeMillis(); // 方法调用之前的修饰
+  Object object = method.invoke(target, args); // 调用代理类中的方法
+  System.out.println(method.getName()+" cost time is: "+(System.currentTimeMillis() - start));
+  return object;
+}
+这个思想在Python的装饰器中和RxJava的lift中都有体现。
+
+第二问：
+java.lang.reflect.Proxy：这是 Java 动态代理机制的主类，它提供了一组静态方法来为一组接口动态地生成代理类及其对象。
+
+// 方法 1: 该方法用于获取指定代理对象所关联的调用处理器
+static InvocationHandler getInvocationHandler(Object proxy) 
+
+// 方法 2：该方法用于获取关联于指定类装载器和一组接口的动态代理类的类对象
+static Class getProxyClass(ClassLoader loader, Class[] interfaces) 
+
+// 方法 3：该方法用于判断指定类对象是否是一个动态代理类
+static boolean isProxyClass(Class cl) 
+
+// 方法 4：该方法用于为指定类装载器、一组接口及调用处理器生成动态代理类实例
+static Object newProxyInstance(ClassLoader loader, Class[] interfaces, 
+  InvocationHandler h)
+
+java.lang.reflect.InvocationHandler：这是调用处理器接口，它自定义了一个 invoke 方法，用于集中处理在动态代理类对象上的方法调用，通常在该方法中实现对委托类的代理访问。
+
+// 该方法负责集中处理动态代理类上的所有方法调用。第一个参数既是代理类实例，第二个参数是被调用的方法对象
+// 第三个方法是调用参数。调用处理器根据这三个参数进行预处理或分派到委托类实例上发射执行
+Object invoke(Object proxy, Method method, Object[] args)
+
+由图可见，Proxy 类是它的父类，这个规则适用于所有由 Proxy 创建的动态代理类。而且该类还实现了其所代理的一组接口，这就是为什么它能够被安全地类型转换到其所代理的某接口的根本原因。
+
+第三问：
+为了保持行为的一致性，代理类和委托类通常会实现相同的接口
+
+相对知识点:
+1、Java反射机制：只需要短短的十几行代码，就可以遍历出来一个Java类的内部结构，包括其中的构造方法、声明的域和定义的方法等。反射API的另外一个作用是在运行时刻对一个Java对象进行操作。
+2、Proxy类：是Java中专门用于生成动态代理的类。它采用反射机制来调用原来的被封装的方法。
+3、Class类：使用Class类的中静态forName()方法获得与字符串对应的Class对象
